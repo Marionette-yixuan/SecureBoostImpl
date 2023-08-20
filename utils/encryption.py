@@ -3,6 +3,8 @@ import datetime
 
 from phe import PaillierPublicKey, EncryptedNumber
 
+from utils.log import logger
+
 
 def serialize_encrypted_number(enc: EncryptedNumber) -> dict:
     """
@@ -22,8 +24,8 @@ def load_encrypted_number(cipher_data: dict, pub: PaillierPublicKey) -> Encrypte
     根据主动方公钥从字典中读取加密数字对象。
     """
     err_msg = 'Invalid cipher data. '
-    assert 'v' in cipher_data, err_msg
-    assert 'e' in cipher_data, err_msg
+    assert 'v' in cipher_data, logger.error(err_msg)
+    assert 'e' in cipher_data, logger.error(err_msg)
 
     enc = EncryptedNumber(
         public_key=pub, 
@@ -52,10 +54,10 @@ def load_pubkey(pub_dict: dict) -> PaillierPublicKey:
     """
     从字典中读取 PaillierPublicKey
     """
-    err_msg = 'Invalid public key'
-    assert 'alg' in pub_dict, err_msg
-    assert pub_dict['alg'] == 'PAI-GN1', err_msg
-    assert pub_dict['kty'] == 'DAJ', err_msg
+    err_msg = 'Invalid public key. '
+    assert 'alg' in pub_dict, logger.error(err_msg)
+    assert pub_dict['alg'] == 'PAI-GN1', logger.error(err_msg)
+    assert pub_dict['kty'] == 'DAJ', logger.error(err_msg)
 
     n = phe.util.base64_to_int(pub_dict['n'])
     pub = phe.PaillierPublicKey(n)
