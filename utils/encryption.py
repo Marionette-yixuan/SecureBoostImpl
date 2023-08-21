@@ -35,11 +35,11 @@ def load_encrypted_number(cipher_data: dict, pub: PaillierPublicKey) -> Encrypte
 
     return enc
 
-def serialize_pubkey(pub: PaillierPublicKey) -> dict:
+def serialize_pub_key(pub: PaillierPublicKey) -> dict:
     """
     将 PaillierPublicKey 转换为字典格式，用于存储。
     """
-    date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    date = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     jwk_public = {
         'key': 'DAJ', 
         'alg': 'PAI-GN1', 
@@ -50,14 +50,14 @@ def serialize_pubkey(pub: PaillierPublicKey) -> dict:
 
     return jwk_public
 
-def load_pubkey(pub_dict: dict) -> PaillierPublicKey:
+def load_pub_key(pub_dict: dict) -> PaillierPublicKey:
     """
     从字典中读取 PaillierPublicKey
     """
     err_msg = 'Invalid public key. '
     assert 'alg' in pub_dict, logger.error(err_msg)
     assert pub_dict['alg'] == 'PAI-GN1', logger.error(err_msg)
-    assert pub_dict['kty'] == 'DAJ', logger.error(err_msg)
+    assert pub_dict['key'] == 'DAJ', logger.error(err_msg)
 
     n = phe.util.base64_to_int(pub_dict['n'])
     pub = phe.PaillierPublicKey(n)

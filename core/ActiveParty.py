@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from utils.log import logger
 from utils.params import temp_root
+from utils.encryption import serialize_pub_key, serialize_encrypted_number, load_encrypted_number
 from utils.decorators import broadcast
 from msgs.messages import msg_empty, msg_name_file
 
@@ -44,6 +45,24 @@ class ActiveParty:
             self.validset = validset.set_index('id')
 
         self.feature_split_time = pd.Series(0, index=self.dataset.index)
+    
+    def broadcast_pub_key(self):
+        """
+        将公钥广播给所有被动方
+        """
+        pub_dict = serialize_pub_key(self.pub_key)
+        file_name = os.path.join(temp_root['file'][self.id], f'active_pub_key.json')
+        with open(file_name, 'w+') as f:
+            json.dump(pub_dict, f)
+
+        @broadcast
+        def send_pub_key(port: int, file_name: str):
+            data = msg_name_file(self.name, file_name)
+            logger.info(f'Sending public key. ')
+            requests.post(f'http://127.0.0.1:{port}/recvActivePubKey', data=data)
+
+        send_pub_key(file_name)
+        logger.info(f'{self.name.upper()}: Public key braodcasted to all passive parties. ')
 
     def sample_align(self):
         """
@@ -99,11 +118,10 @@ class ActiveParty:
         @broadcast
         def send_aligned_sample(port: int, file_name: str):
             data = msg_name_file(self.name, file_name)
-            logger.info(f'Sending aligned sample: {data}.')
+            logger.debug(f'Sending aligned sample: {data}.')
             requests.post(f'http://127.0.0.1:{port}/recvSampleList', data=data)
 
         send_aligned_sample(file_name)
-
         logger.info(f'{self.name.upper()}: Aligned sample broadcasted to all passive parties. ')
 
         self.dataset = self.dataset.loc[[train_idx_map[th] for th in train_hash], :]

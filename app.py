@@ -21,6 +21,12 @@ def recv_sample_list():
     logger.debug(f'Request data: {request.form.keys()}. ')
     return pp.recv_sample_list(recv_data['file_name'])
 
+@app.route('/recvActivePubKey', methods=['POST'])
+def recv_active_pub_key():
+    recv_data = request.form.to_dict()
+    logger.debug(f'Request data: {request.form.keys()}. ')
+    return pp.recv_active_pub_key(recv_data['file_name'])
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help=False)
@@ -32,7 +38,6 @@ if __name__ == '__main__':
     port = args.port
 
     path_list = [
-        f'static/log/party-{id}', 
         f'temp/file/party-{id}', 
         f'temp/model/party-{id}'
     ]

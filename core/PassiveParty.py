@@ -4,7 +4,7 @@ import pandas as pd
 
 from utils.log import logger
 from utils.params import temp_root
-from utils.encryption import load_pubkey, serialize_encrypted_number, load_encrypted_number
+from utils.encryption import load_pub_key, serialize_encrypted_number, load_encrypted_number
 from msgs.messages import msg_empty, msg_name_file
 
 
@@ -12,7 +12,7 @@ class PassiveParty:
     def __init__(self, id: int) -> None:
         self.id = id
         self.name = f'party{self.id}'          # 被动方名称
-        self.active_pubkey = None           # 主动方的公钥，用于数据加密
+        self.active_pub_key = None             # 主动方的公钥，用于数据加密
         self.dataset = None                 # 训练集
         self.validset = None                # 验证集
 
@@ -43,7 +43,9 @@ class PassiveParty:
         """
         with open(file_name, 'r+') as f:
             pub_dict = json.load(f)
-        self.active_pubkey = load_pubkey(pub_dict)
+        self.active_pub_key = load_pub_key(pub_dict)
+        logger.info(f'{self.name.upper()}: Received public key {str(pub_dict["n"])[:10]}. ')
+        return msg_empty()
         
     def get_sample_list(self) -> str:
         """
