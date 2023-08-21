@@ -40,5 +40,4 @@ if __name__ == '__main__':
 
     ap = ActiveParty()
     ap.load_dataset('static/data/ap_train.csv', 'static/data/ap_test.csv')
-    ap.broadcast_pub_key()
-    ap.sample_align()
+    ap.train()

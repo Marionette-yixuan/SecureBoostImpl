@@ -2,11 +2,9 @@ import os
 import json
 import threading
 import requests
-import concurrent.futures
 import pandas as pd
 from collections import deque
-from phe import paillier
-from concurrent.futures import ThreadPoolExecutor
+from phe import paillier, PaillierPublicKey, PaillierPrivateKey
 
 from utils.log import logger
 from utils.params import temp_root
@@ -127,11 +125,47 @@ class ActiveParty:
         self.dataset = self.dataset.loc[[train_idx_map[th] for th in train_hash], :]
         if self.validset is not None:
             self.validset = self.validset.loc[[valid_idx_map[vh] for vh in valid_hash], :]
-        
+
+    def train(self):
+        self.broadcast_pub_key()
+        self.sample_align()
+
 
 class Model:
     def __init__(self) -> None:
-        pass
+        self.trees = []
+
+        # 原始 & 加密梯度，类型均为 pd.Series
+        self.g = None
+        self.h = None
+        self.g_enc = None
+        self.h_enc = None
+
+    def update_gradients(self, g, h, pub_key):
+        """
+        更新梯度并加密
+        """
+        self.g = g
+        self.h = h
+        self.encrypt_gradients(pub_key)
+    
+    def encrypt_gradients(self, pub_key: PaillierPublicKey):
+        """
+        将梯度用公钥加密
+        """
+        def encrypt_data(data, pub_key: PaillierPublicKey):
+            """
+            将 data 加密后转换成字典形式返回
+            """
+            enc_data = pub_key.encrypt(data)
+            return serialize_encrypted_number(enc_data)
+        
+        logger.info(f'Gradients encrypting. ')
+
+        self.g_enc, self.h_enc = self.g.apply(encrypt_data, pub_key), self.h.apply(encrypt_data, pub_key)
+
+    def __len__(self):
+        return len(self.__trees)
 
 
 class TreeNode:
