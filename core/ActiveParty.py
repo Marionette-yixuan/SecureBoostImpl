@@ -2,6 +2,7 @@ import os
 import json
 import threading
 import requests
+import concurrent.futures
 import pandas as pd
 from collections import deque
 from phe import paillier
@@ -64,9 +65,8 @@ class ActiveParty:
 
         
         # 向所有被动方请求样本列表，返回时依次求交
-        count = 0
         def recv_sample_list(port: int):
-            nonlocal train_hash, valid_hash, count
+            nonlocal train_hash, valid_hash
 
             data = msg_empty()
             res_dict = requests.post(f'http://127.0.0.1:{port}/getSampleList', data=data).json()
@@ -79,13 +79,12 @@ class ActiveParty:
             if self.validset is not None:
                 valid_hash = valid_hash.intersection(set(hash_data['valid_hash']))
             lock.release()
-            count += 1
 
-        executor = ThreadPoolExecutor(10)
-        for port in self.passive_list:
-            executor.submit(recv_sample_list, port)
-        while count < len(self.passive_list):       # 同步，接收所有被动方的样本后再进行下一步
-            pass
+        with ThreadPoolExecutor(10) as executor:
+            futures = []
+            for port in self.passive_list:
+                futures.append(executor.submit(recv_sample_list, port))
+            concurrent.futures.wait(futures)            # 在处理所有被动方的样本列表后再继续
         
         logger.info(f'{self.name.upper()}: Sample alignment finished. Intersect trainset contains {len(train_hash)} samples. ')
 
@@ -101,18 +100,16 @@ class ActiveParty:
             json.dump(json_data, f)
 
         # 向所有被动方广播求交后的样本下标
-        count = 0
         def send_aligned_sample(file_name: str, port: int):
-            nonlocal count
             data = msg_name_file(self.name, file_name)
             logger.info(f'Sending aligned sample: {data}.')
             requests.post(f'http://127.0.0.1:{port}/recvSampleList', data=data)
-            count += 1
 
-        for port in self.passive_list:
-            executor.submit(send_aligned_sample, file_name, port)
-        while count < len(self.passive_list):
-            pass
+        with ThreadPoolExecutor(10) as executor:
+            futures = []
+            for port in self.passive_list:
+                futures.append(executor.submit(send_aligned_sample, file_name, port))
+            concurrent.futures.wait(futures)
 
         logger.info(f'{self.name.upper()}: Aligned sample broadcasted to all passive parties. ')
 
