@@ -10,10 +10,11 @@ from concurrent.futures import ThreadPoolExecutor
 
 from utils.log import logger
 from utils.params import temp_root
+from utils.decorators import broadcast
 from msgs.messages import msg_empty, msg_name_file
 
 class ActiveParty:
-    def __init__(self, passive_list: list) -> None:
+    def __init__(self) -> None:
         self.id = 0
         self.name = f'party{self.id}'
         self.pub_key, self.pri_key = paillier.generate_paillier_keypair(n_length=256)
@@ -23,8 +24,6 @@ class ActiveParty:
         self.validset = None
 
         self.model = Model()
-
-        self.passive_list = passive_list        # 所有被动方的端口
 
         # 训练中临时变量
         self.cur_split_node = None      # 当前正在分裂的节点
@@ -65,6 +64,7 @@ class ActiveParty:
 
         
         # 向所有被动方请求样本列表，返回时依次求交
+        @broadcast
         def recv_sample_list(port: int):
             nonlocal train_hash, valid_hash
 
@@ -80,11 +80,7 @@ class ActiveParty:
                 valid_hash = valid_hash.intersection(set(hash_data['valid_hash']))
             lock.release()
 
-        with ThreadPoolExecutor(10) as executor:
-            futures = []
-            for port in self.passive_list:
-                futures.append(executor.submit(recv_sample_list, port))
-            concurrent.futures.wait(futures)            # 在处理所有被动方的样本列表后再继续
+        recv_sample_list()
         
         logger.info(f'{self.name.upper()}: Sample alignment finished. Intersect trainset contains {len(train_hash)} samples. ')
 
@@ -100,16 +96,13 @@ class ActiveParty:
             json.dump(json_data, f)
 
         # 向所有被动方广播求交后的样本下标
-        def send_aligned_sample(file_name: str, port: int):
+        @broadcast
+        def send_aligned_sample(port: int, file_name: str):
             data = msg_name_file(self.name, file_name)
             logger.info(f'Sending aligned sample: {data}.')
             requests.post(f'http://127.0.0.1:{port}/recvSampleList', data=data)
 
-        with ThreadPoolExecutor(10) as executor:
-            futures = []
-            for port in self.passive_list:
-                futures.append(executor.submit(send_aligned_sample, file_name, port))
-            concurrent.futures.wait(futures)
+        send_aligned_sample(file_name)
 
         logger.info(f'{self.name.upper()}: Aligned sample broadcasted to all passive parties. ')
 

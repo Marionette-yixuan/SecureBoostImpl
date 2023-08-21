@@ -6,6 +6,7 @@ temp_root = {
         ] for dir_type in ['file', 'model']
     }
 
+passive_list = []
 
 if __name__ == '__main__':
     print(temp_root)
