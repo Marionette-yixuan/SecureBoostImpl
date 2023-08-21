@@ -1,3 +1,11 @@
 import os
 
-temp_root = {file_type: os.path.join('temp', file_type) for file_type in ['active', 'passive', 'model']}
+temp_root = {
+    dir_type: [
+            os.path.join('temp', dir_type, f'party-{idx}') for idx in range(10)
+        ] for dir_type in ['file', 'model']
+    }
+
+
+if __name__ == '__main__':
+    print(temp_root)

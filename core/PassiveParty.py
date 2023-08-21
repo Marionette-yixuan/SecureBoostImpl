@@ -1,14 +1,17 @@
 import os
 import json
 import pandas as pd
+
+from utils.log import logger
 from utils.params import temp_root
 from utils.encryption import load_pubkey, serialize_encrypted_number, load_encrypted_number
-from msgs.messages import msg_name_file
+from msgs.messages import msg_empty, msg_name_file
 
 
 class PassiveParty:
-    def __init__(self, name: str) -> None:
-        self.name = name                    # 被动方名称
+    def __init__(self, id: int) -> None:
+        self.id = id
+        self.name = f'party{self.id}'          # 被动方名称
         self.active_pubkey = None           # 主动方的公钥，用于数据加密
         self.dataset = None                 # 训练集
         self.validset = None                # 验证集
@@ -50,18 +53,18 @@ class PassiveParty:
 
         train_idx = self.dataset.index.tolist()
         train_idx_map = {sha1(idx): idx for idx in train_idx}
-        train_hash = train_idx_map.keys()
+        train_hash = list(train_idx_map.keys())
 
         if self.validset is not None:
             valid_idx = self.validset.index.tolist()
             valid_idx_map = {sha1(idx): idx for idx in valid_idx}
-            valid_hash = valid_idx_map.keys()
+            valid_hash = list(valid_idx_map.keys())
 
         map_data = {
             'train_map': train_idx_map, 
             'valid_map': valid_idx_map
         }
-        map_file = os.path.join(temp_root['passive'], f'{self.name}_idx_map.json')
+        map_file = os.path.join(temp_root['file'][self.id], f'idx_map.json')
         with open(map_file, 'w+') as f:
             json.dump(map_data, f)
 
@@ -70,9 +73,11 @@ class PassiveParty:
             'valid_hash': valid_hash
         }
 
-        file_name = os.path.join(temp_root['passive'], f'{self.name}_sample_align.json')
+        file_name = os.path.join(temp_root['file'][self.id], f'sample_align.json')
         with open(file_name, 'w+') as f:
             json.dump(json_data, f)
+
+        logger.info(f'{self.name.upper()}: Send sample to active party. ')
 
         return msg_name_file(self.name, file_name)
     
@@ -80,16 +85,19 @@ class PassiveParty:
         """
         根据主动方对齐后返回的样本列表文件更新本地数据集
         """
-        with open(os.path.join(temp_root['passive'], f'{self.name}_idx_map.json'), 'r') as f:
+        with open(os.path.join(temp_root['file'][self.id], f'idx_map.json'), 'r') as f:
             map_data = json.load(f)
-        
+
         with open(file_name, 'r') as f:
             hash_data = json.load(f)
 
         train_idx = [map_data['train_map'][th] for th in hash_data['train_hash']]
         self.dataset = self.dataset.loc[train_idx, :]
 
+        logger.info(f'{self.name.upper()}: Received aligned sample with train length {len(train_idx)}. ')
+
         if self.validset is not None:
             valid_idx = [map_data['valid_map'][vh] for vh in hash_data['valid_hash']]
             self.validset = self.validset.loc[valid_idx, :]
 
+        return msg_empty()

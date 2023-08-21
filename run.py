@@ -1,5 +1,6 @@
-import argparse
 import os
+import shutil
+import argparse
 from concurrent.futures import ThreadPoolExecutor
 
 from core.ActiveParty import ActiveParty
@@ -20,13 +21,24 @@ if __name__ == '__main__':
 
     executor = ThreadPoolExecutor(10)
 
+    id = 0
+    path_list = [
+        f'temp/file/party-{id}', 
+        f'temp/model/party-{id}'
+    ]
+
+    for path in path_list:
+        if os.path.exists(path):
+            shutil.rmtree(path)
+        os.makedirs(path)
+
     passive_list = []
     for i in range(passive_num):
         port = start_port + i
         passive_list.append(port)
-        executor.submit(create_passive_party, ({'id': i + 1, 'port': port}))
+        executor.submit(create_passive_party, {'id': i + 1, 'port': port})
 
-    ap = ActiveParty('ap', passive_list)
+    ap = ActiveParty(passive_list)
     ap.load_dataset('static/data/ap_train.csv', 'static/data/ap_test.csv')
     # ap.broadcast_pub_key()
     ap.sample_align()
