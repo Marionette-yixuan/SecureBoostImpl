@@ -156,6 +156,7 @@ class PassiveParty:
 
         self.temp_file = splits_file
         self.train_status = 'Ready'
+        logger.info(f'{self.name.upper()}: Split scores finished, ready to return. ')
 
     def get_splits_sum(self):
         """

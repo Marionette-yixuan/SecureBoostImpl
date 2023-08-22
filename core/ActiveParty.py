@@ -202,7 +202,7 @@ class ActiveParty:
                 recv_data = requests.post(f'http://127.0.0.1:{port}/getSplitsSum').json()
                 if 'party_name' in recv_data:
                     logger.info(f'Received from {port}, file name: {recv_data["file_name"]}. ')
-                time.sleep(0.2)
+                time.sleep(2)
 
 
 class Model:

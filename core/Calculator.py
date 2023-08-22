@@ -10,7 +10,7 @@ class Calculator:
     lmd = 30.0
     gma = 0.0
     # 样本空间的划分分位数
-    quantile = None         # TODO
+    quantile = np.linspace(0, 1, 9).tolist()[1:-1]
     # 节点的最小样本数量（如果低于该数量则不会再分裂）
     min_sample = 8
     # 模型参数
