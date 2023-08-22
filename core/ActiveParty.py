@@ -11,7 +11,7 @@ from utils.log import logger
 from utils.params import temp_root
 from utils.encryption import serialize_pub_key, serialize_encrypted_number, load_encrypted_number
 from utils.decorators import broadcast
-from msgs.messages import msg_empty, msg_name_file
+from msgs.messages import msg_empty, msg_name_file, msg_gradient_file
 
 
 class ActiveParty:
@@ -26,6 +26,8 @@ class ActiveParty:
 
         self.model = Model()
 
+        self.passive_port = {}
+
         # 训练中临时变量
         self.cur_split_node = None      # 当前正在分裂的节点
         self.split_nodes = deque()      # 待分裂的节点队列
@@ -38,7 +40,7 @@ class ActiveParty:
         """
         dataset = pd.read_csv(data_path)
         dataset['id'] = dataset['id'].astype(str)
-        self.dataset = dataset.set_index('id')
+        self.dataset = dataset.set_index('id').iloc[:200]
 
         if valid_path:
             validset = pd.read_csv(valid_path)
@@ -61,10 +63,11 @@ class ActiveParty:
         def send_pub_key(port: int, file_name: str):
             data = msg_name_file(self.name, file_name)
             logger.info(f'Sending public key. ')
-            requests.post(f'http://127.0.0.1:{port}/recvActivePubKey', data=data)
+            recv_data = requests.post(f'http://127.0.0.1:{port}/recvActivePubKey', data=data).json()
+            self.passive_port[recv_data['party_name']] = port
 
         send_pub_key(file_name)
-        logger.info(f'{self.name.upper()}: Public key braodcasted to all passive parties. ')
+        logger.info(f'{self.name.upper()}: Public key broadcasted to all passive parties. ')
 
     def sample_align(self):
         """
@@ -90,10 +93,10 @@ class ActiveParty:
             nonlocal train_hash, valid_hash
 
             data = msg_empty()
-            res_dict = requests.post(f'http://127.0.0.1:{port}/getSampleList', data=data).json()
-            with open(res_dict['file_name'], 'r') as f:
+            recv_data = requests.post(f'http://127.0.0.1:{port}/getSampleList', data=data).json()
+            with open(recv_data['file_name'], 'r') as f:
                 hash_data = json.load(f)
-            logger.info(f'{self.name.upper()}: Received sample list from {res_dict["party_name"]}')
+            logger.info(f'{self.name.upper()}: Received sample list from {recv_data["party_name"]}')
             
             lock.acquire()          # 加锁防止完整性破坏
             train_hash = train_hash.intersection(set(hash_data['train_hash']))
@@ -157,7 +160,7 @@ class ActiveParty:
             root = self.model[-1]
             for leaf in root.get_leaves():
                 instance_space = leaf.instance_space
-                leaf.weight = Calculator.leaf_weight(self.model.g, self.model.h, instance_space)        # 计算叶子节点的权重
+                leaf.weight = Calculator.leaf_weight(self.model.grad, self.model.hess, instance_space)        # 计算叶子节点的权重
                 self.cur_preds[instance_space] += leaf.weight                               # 更新该叶子节点中所有样本的预测值
         else:
             self.cur_preds = pd.Series(Calculator.init_pred, index=self.dataset.index)
@@ -171,20 +174,48 @@ class ActiveParty:
 
     def train(self):
         self.broadcast_pub_key()
+        logger.debug(f'Passive party ports: {self.passive_port}. ')
         self.sample_align()
         while self.train_status():
-            pass
+            spliting_node = self.split_nodes.popleft()
+            logger.info(f'{self.name.upper()}: Splitting node {spliting_node.id}. ')
+
+            # 准备好本节点训练所用的文件
+            instance_space_file = os.path.join(temp_root['file'][self.id], f'instance_space.json')
+            instance_space = spliting_node.instance_space
+            with open(instance_space_file, 'w+') as f:
+                json.dump(instance_space, f)
+
+            # 广播梯度
+            @broadcast
+            def send_gradients(port: int, instance_space_file: str):
+                data = msg_gradient_file(self.name, instance_space_file, self.model.grad_file, self.model.hess_file)
+                logger.info(f'Sending gradients. ')
+                requests.post(f'http://127.0.0.1:{port}/recvGradients', data=data)
+
+            send_gradients(instance_space_file)
+            logger.info(f'{self.name.upper()}: Gradients broadcasted to all passive parties. ')
+
+            while True:
+                import time
+                port = 10001
+                recv_data = requests.post(f'http://127.0.0.1:{port}/getSplitsSum').json()
+                if 'party_name' in recv_data:
+                    logger.info(f'Received from {port}, file name: {recv_data["file_name"]}. ')
+                time.sleep(0.2)
 
 
 class Model:
-    def __init__(self) -> None:
+    def __init__(self, active_idx=0) -> None:
         self.trees = []
 
         # 原始 & 加密梯度，类型均为 pd.Series
-        self.g = None
-        self.h = None
-        self.g_enc = None
-        self.h_enc = None
+        self.grad = None
+        self.hess = None
+        self.grad_enc = None
+        self.hess_enc = None
+        self.grad_file = os.path.join(temp_root['file'][active_idx], f'grad.pkl')
+        self.hess_file = os.path.join(temp_root['file'][active_idx], f'hess.pkl')
 
     def __len__(self):
         return len(self.trees)
@@ -199,8 +230,8 @@ class Model:
         """
         更新梯度并加密
         """
-        self.g = g
-        self.h = h
+        self.grad = g
+        self.hess = h
         self.encrypt_gradients(pub_key)
     
     def encrypt_gradients(self, pub_key: PaillierPublicKey):
@@ -209,8 +240,8 @@ class Model:
         """
         from tqdm import tqdm
 
-        with tqdm(total=len(self.g)*2) as pbar:
-            
+        with tqdm(total=len(self.grad)*2) as pbar:
+
             def encrypt_data(data, pub_key: PaillierPublicKey):
                 """
                 将 data 加密后转换成字典形式返回
@@ -221,7 +252,9 @@ class Model:
             
             logger.info(f'Gradients encrypting... ')
 
-            self.g_enc, self.h_enc = self.g.apply(encrypt_data, pub_key=pub_key), self.h.apply(encrypt_data, pub_key=pub_key)
+            self.grad_enc, self.hess_enc = self.grad.apply(encrypt_data, pub_key=pub_key), self.hess.apply(encrypt_data, pub_key=pub_key)
+            self.grad_enc.to_pickle(self.grad_file)
+            self.hess_enc.to_pickle(self.hess_file)
 
 
 class TreeNode:
@@ -244,7 +277,7 @@ class TreeNode:
     def get_leaves(self):
         if not self.left and not self.right:
             yield self
-        if not self.left:
-            self.right.get_leaves()
-        if not self.right:
+        if self.left:
             self.left.get_leaves()
+        if self.right:
+            self.right.get_leaves()

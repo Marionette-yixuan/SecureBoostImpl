@@ -15,3 +15,9 @@ def broadcast(func):
                 futures.append(executor.submit(func, port, *args, **kwargs))
             concurrent.futures.wait(futures)
     return wrapper
+
+def use_thread(func):
+    def wrapper(*args, **kwargs):
+        with ThreadPoolExecutor(10) as executor:
+            executor.submit(func, *args, **kwargs)
+    return wrapper

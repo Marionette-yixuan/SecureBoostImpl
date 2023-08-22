@@ -27,6 +27,16 @@ def recv_active_pub_key():
     logger.debug(f'Request data: {request.form.keys()}. ')
     return pp.recv_active_pub_key(recv_data['file_name'])
 
+@app.route('/recvGradients', methods=['POST'])
+def recv_gradients():
+    recv_data = request.form.to_dict()
+    logger.debug(f'Request data: {request.form.keys()}. ')
+    return pp.recv_gradients(recv_data)
+
+@app.route('/getSplitsSum', methods=['POST'])
+def get_splits_sum():
+    return pp.get_splits_sum()
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help=False)

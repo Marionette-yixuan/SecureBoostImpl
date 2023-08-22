@@ -2,8 +2,10 @@ import os
 import json
 import pandas as pd
 
+from core.Calculator import Calculator
 from utils.log import logger
 from utils.params import temp_root
+from utils.decorators import use_thread
 from utils.encryption import load_pub_key, serialize_encrypted_number, load_encrypted_number
 from msgs.messages import msg_empty, msg_name_file
 
@@ -19,7 +21,9 @@ class PassiveParty:
         self.look_up_table = pd.DataFrame(columns=['feature_name', 'feature_thresh'])           # 查找表
 
         # 训练中临时变量
+        self.train_status = ''              # 训练状态，取值为 ['Idle', 'Busy', 'Ready']
         self.cur_splits = []                # 当前全部可能的分裂点信息
+        self.temp_file = ''                 # 临时保存的文件名，当 train_status 为特定值时返回
         self.feature_split_time = None      # 各特征的分裂次数
 
     def load_dataset(self, data_path: str, valid_path: str=None):
@@ -28,7 +32,7 @@ class PassiveParty:
         """
         dataset = pd.read_csv(data_path)
         dataset['id'] = dataset['id'].astype(str)
-        self.dataset = dataset.set_index('id')
+        self.dataset = dataset.set_index('id').iloc[:200]
 
         if valid_path:
             validset = pd.read_csv(valid_path)
@@ -45,7 +49,7 @@ class PassiveParty:
             pub_dict = json.load(f)
         self.active_pub_key = load_pub_key(pub_dict)
         logger.info(f'{self.name.upper()}: Received public key {str(pub_dict["n"])[:10]}. ')
-        return msg_empty()
+        return msg_name_file(self.name, '')     # 将本方名称返回给主动方，用于主动方保存名称->端口的映射
         
     def get_sample_list(self) -> str:
         """
@@ -103,3 +107,61 @@ class PassiveParty:
             self.validset = self.validset.loc[valid_idx, :]
 
         return msg_empty()
+    
+    def recv_gradients(self, recv_dict: dict):
+        """
+        主动方将数据发送给被动方，被动方开启线程进行训练
+        """
+        self.train(recv_dict)
+        return msg_empty()
+        
+    @use_thread
+    def train(self, recv_dict: dict):
+        """
+        根据主动方发来的数据计算可能的最佳分裂点
+        """
+        self.train_status = 'Busy'
+        assert all(key in recv_dict for key in ['instance_space', 'grad', 'hess']), logger.error('Keys required not found! ')
+        logger.debug(f'Begin training. ')
+
+        with open(recv_dict['instance_space'], 'r') as f:
+            instance_space = json.load(f)
+        grad = pd.read_pickle(recv_dict['grad'])
+        hess = pd.read_pickle(recv_dict['hess'])
+
+        grad = grad.apply(load_encrypted_number, pub_key=self.active_pub_key)
+        hess = hess.apply(load_encrypted_number, pub_key=self.active_pub_key)
+
+        # 记录每种分裂方式的梯度和（用于返回给主动方）、分裂方式（用于临时保存），二者下标需要一一对应
+        logger.info(f'{self.name.upper()}: Gradients received, start calculating on {len(grad)} samples. ')
+        self.cur_splits = []
+        cur_splits_sum = []
+
+        for feature in [col for col in self.dataset.columns if col != 'y']:
+            feature_values = self.dataset.loc[instance_space, feature].sort_values(ascending=True)      # 取出该特征该样本空间的值
+            split_indices = [int(qt * len(feature_values)) for qt in Calculator.quantile]               # 可选的分裂点
+
+            for si in split_indices:
+                left_space = feature_values.iloc[si:].index.tolist()
+                thresh = feature_values.iloc[si]
+                left_grad_sum, left_hess_sum = grad[left_space].sum(), hess[left_space].sum()
+
+                self.cur_splits.append((feature, thresh, left_space))
+                cur_splits_sum.append({'grad_left': serialize_encrypted_number(left_grad_sum), 
+                                       'hess_left': serialize_encrypted_number(left_hess_sum)})
+       
+        splits_file = os.path.join(temp_root['file'][self.id], f'splits_file.json')
+        with open(splits_file, 'w+') as f:
+            json.dump(cur_splits_sum, f)
+
+        self.temp_file = splits_file
+        self.train_status = 'Ready'
+
+    def get_splits_sum(self):
+        """
+        主动方轮询请求被动方的训练结果
+        """
+        if self.train_status != 'Ready':
+            return msg_empty()
+        else:
+            return msg_name_file(self.name, self.temp_file)
