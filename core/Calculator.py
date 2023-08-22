@@ -20,7 +20,7 @@ class Calculator:
     init_pred = 0.0             # 初始预测值
     output_thresh = 0.33        # 对于输出的映射，大于该值则输出 1，反之输出 0
     # 其它参数
-    keypair_gen_length = 256    # Paillier 公私钥的生成长度
+    keypair_gen_length = 128     # Paillier 公私钥的生成长度
 
     def __init__(self) -> None:
         pass

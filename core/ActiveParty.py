@@ -139,7 +139,9 @@ class ActiveParty:
         # 待分裂节点为空，则根据回归树的数量判断是否结束训练
         if len(self.model) < Calculator.max_trees:          # 树的数量未达到上限，则根据上一棵树更新数据，并将新一棵树加入
             logger.info(f'{self.name.upper()}: No pending node, creating new tree, index {len(self.model)}. ')
-            self.model.append(self.create_new_tree())       # 更新权重并新建一棵树
+            new_root = self.create_new_tree()           # 更新权重并新建一棵树
+            self.split_nodes.append(new_root)           # 加入待分裂节点队列
+            self.model.append(new_root)                 # 加入模型
             self.update_gradients()         # 根据当前节点的预测值更新模型梯度
             return True
         else:
@@ -171,7 +173,7 @@ class ActiveParty:
         self.broadcast_pub_key()
         self.sample_align()
         while self.train_status():
-            split_node = self.split_nodes.popleft()
+            pass
 
 
 class Model:
@@ -191,7 +193,7 @@ class Model:
         return self.trees[idx]
     
     def append(self, root):
-        self.trees.append[root]
+        self.trees.append(root)
     
     def update_gradients(self, g, h, pub_key):
         """
@@ -205,16 +207,21 @@ class Model:
         """
         将梯度用公钥加密
         """
-        def encrypt_data(data, pub_key: PaillierPublicKey):
-            """
-            将 data 加密后转换成字典形式返回
-            """
-            enc_data = pub_key.encrypt(data)
-            return serialize_encrypted_number(enc_data)
-        
-        logger.info(f'Gradients encrypting. ')
+        from tqdm import tqdm
 
-        self.g_enc, self.h_enc = self.g.apply(encrypt_data, pub_key=pub_key), self.h.apply(encrypt_data, pub_key=pub_key)
+        with tqdm(total=len(self.g)*2) as pbar:
+            
+            def encrypt_data(data, pub_key: PaillierPublicKey):
+                """
+                将 data 加密后转换成字典形式返回
+                """
+                pbar.update(1)
+                enc_data = pub_key.encrypt(data)
+                return serialize_encrypted_number(enc_data)
+            
+            logger.info(f'Gradients encrypting... ')
+
+            self.g_enc, self.h_enc = self.g.apply(encrypt_data, pub_key=pub_key), self.h.apply(encrypt_data, pub_key=pub_key)
 
 
 class TreeNode:
