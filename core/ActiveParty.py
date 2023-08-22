@@ -6,17 +6,19 @@ import pandas as pd
 from collections import deque
 from phe import paillier, PaillierPublicKey, PaillierPrivateKey
 
+from core.Calculator import Calculator
 from utils.log import logger
 from utils.params import temp_root
 from utils.encryption import serialize_pub_key, serialize_encrypted_number, load_encrypted_number
 from utils.decorators import broadcast
 from msgs.messages import msg_empty, msg_name_file
 
+
 class ActiveParty:
     def __init__(self) -> None:
         self.id = 0
         self.name = f'party{self.id}'
-        self.pub_key, self.pri_key = paillier.generate_paillier_keypair(n_length=256)
+        self.pub_key, self.pri_key = paillier.generate_paillier_keypair(n_length=Calculator.keypair_gen_length)
         logger.info(f'{self.name.upper()}: Paillier key generated. ')
 
         self.dataset = None
@@ -27,6 +29,7 @@ class ActiveParty:
         # 训练中临时变量
         self.cur_split_node = None      # 当前正在分裂的节点
         self.split_nodes = deque()      # 待分裂的节点队列
+        self.cur_preds = None
         self.feature_split_time = None  # 各特征的分裂次数
 
     def load_dataset(self, data_path: str, valid_path: str=None):
@@ -42,6 +45,7 @@ class ActiveParty:
             validset['id'] = validset['id'].astype(str)
             self.validset = validset.set_index('id')
 
+        self.cur_preds = pd.Series(Calculator.init_pred, index=self.dataset.index)
         self.feature_split_time = pd.Series(0, index=self.dataset.index)
     
     def broadcast_pub_key(self):
@@ -126,9 +130,21 @@ class ActiveParty:
         if self.validset is not None:
             self.validset = self.validset.loc[[valid_idx_map[vh] for vh in valid_hash], :]
 
+    def train_status(self):
+        """
+        根据训练状态进行相关初始操作
+        """
+        if len(self.split_nodes) != 0:          # 还有待分裂节点，继续训练
+            return True
+
+    def update_gradients(self):
+        g, h = Calculator.grad(self.cur_preds, self.dataset)
+        self.model.update_gradients(g, h, self.pub_key)
+
     def train(self):
-        self.broadcast_pub_key()
-        self.sample_align()
+        self.update_gradients()
+        # self.broadcast_pub_key()
+        # self.sample_align()
 
 
 class Model:
@@ -162,7 +178,7 @@ class Model:
         
         logger.info(f'Gradients encrypting. ')
 
-        self.g_enc, self.h_enc = self.g.apply(encrypt_data, pub_key), self.h.apply(encrypt_data, pub_key)
+        self.g_enc, self.h_enc = self.g.apply(encrypt_data, pub_key=pub_key), self.h.apply(encrypt_data, pub_key=pub_key)
 
     def __len__(self):
         return len(self.__trees)
