@@ -136,15 +136,42 @@ class ActiveParty:
         """
         if len(self.split_nodes) != 0:          # 还有待分裂节点，继续训练
             return True
+        # 待分裂节点为空，则根据回归树的数量判断是否结束训练
+        if len(self.model) < Calculator.max_trees:          # 树的数量未达到上限，则根据上一棵树更新数据，并将新一棵树加入
+            logger.info(f'{self.name.upper()}: No pending node, creating new tree, index {len(self.model)}. ')
+            self.model.append(self.create_new_tree())       # 更新权重并新建一棵树
+            self.update_gradients()         # 根据当前节点的预测值更新模型梯度
+            return True
+        else:
+            logger.info(f'{self.name.upper()}: Training completed. ')
+            self.create_new_tree()                  # 更新最后一棵树的叶子节点权重
+            return False
+
+    def create_new_tree(self):
+        """
+        向模型中新建一棵树，并计算上一棵树的叶子节点权重，更新对样本的预测值
+        """
+        if len(self.model) > 0:
+            root = self.model[-1]
+            for leaf in root.get_leaves():
+                instance_space = leaf.instance_space
+                leaf.weight = Calculator.leaf_weight(self.model.g, self.model.h, instance_space)        # 计算叶子节点的权重
+                self.cur_preds[instance_space] += leaf.weight                               # 更新该叶子节点中所有样本的预测值
+        else:
+            self.cur_preds = pd.Series(Calculator.init_pred, index=self.dataset.index)
+
+        new_root = TreeNode(0, self.dataset.index.tolist())
+        return new_root
 
     def update_gradients(self):
         g, h = Calculator.grad(self.cur_preds, self.dataset)
         self.model.update_gradients(g, h, self.pub_key)
 
     def train(self):
-        self.update_gradients()
-        # self.broadcast_pub_key()
-        # self.sample_align()
+        self.broadcast_pub_key()
+        self.sample_align()
+        while self.train_status():
+            split_node = self.split_nodes.popleft()
 
 
 class Model:
@@ -157,6 +184,15 @@ class Model:
         self.g_enc = None
         self.h_enc = None
 
+    def __len__(self):
+        return len(self.trees)
+    
+    def __getitem__(self, idx):
+        return self.trees[idx]
+    
+    def append(self, root):
+        self.trees.append[root]
+    
     def update_gradients(self, g, h, pub_key):
         """
         更新梯度并加密
@@ -180,9 +216,6 @@ class Model:
 
         self.g_enc, self.h_enc = self.g.apply(encrypt_data, pub_key=pub_key), self.h.apply(encrypt_data, pub_key=pub_key)
 
-    def __len__(self):
-        return len(self.__trees)
-
 
 class TreeNode:
     def __init__(self, id: int, instance_space: list) -> None:
@@ -200,3 +233,11 @@ class TreeNode:
 
         # 节点权重
         self.weight = 0.0
+
+    def get_leaves(self):
+        if not self.left and not self.right:
+            yield self
+        if not self.left:
+            self.right.get_leaves()
+        if not self.right:
+            self.left.get_leaves()

@@ -37,3 +37,35 @@ class Calculator:
         hess = preds * (1 - preds)
         logger.debug(f'Gradients: {list(grad.iloc[:5].values)}. ')
         return grad, hess
+
+    @staticmethod
+    def split_score_active(grad: pd.Series, hess: pd.Series, left_space: list, right_space: list) -> float:
+        """
+        根据梯度和划分后的样本空间计算分裂增益。该方法用于主动方（被动方无法获得可以用来进行乘除运算的梯度）。
+        """
+        left_grad_sum = grad[left_space].sum()
+        left_hess_sum = hess[left_space].sum()
+        full_grad_sum = grad[left_space + right_space].sum()
+        full_hess_sum = hess[left_space + right_space].sum()
+
+        return Calculator.split_score_passive(left_grad_sum, left_hess_sum, full_grad_sum, full_hess_sum)
+    
+    @staticmethod
+    def split_score_passive(left_grad_sum: float, left_hess_sum: float, full_grad_sum: float, full_hess_sum: float) -> float:
+        """
+        根据计算好的左样本空间和以及整个空间和计算分裂增益。该方法用于被动方传来的数据计算增益。
+        """
+        right_grad_sum = full_grad_sum - left_grad_sum
+        right_hess_sum = full_hess_sum - left_hess_sum
+        
+        temp = (left_grad_sum ** 2) / (left_hess_sum + Calculator.lmd)
+        temp += (right_grad_sum ** 2) / (right_hess_sum + Calculator.lmd)
+        temp -= (full_grad_sum ** 2) / (full_hess_sum + Calculator.lmd)
+        return temp / 2 - Calculator.gma
+
+    @staticmethod
+    def leaf_weight(grad: pd.Series, hess: pd.Series, instance_space: list) -> float:
+        """
+        计算叶子节点的权重
+        """
+        return -grad[instance_space].sum() / (hess[instance_space].sum() + Calculator.lmd)
