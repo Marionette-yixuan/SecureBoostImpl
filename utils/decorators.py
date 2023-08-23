@@ -10,7 +10,7 @@ def broadcast(func):
     def wrapper(*args, **kwargs):
         with ThreadPoolExecutor(10) as executor:
             for port in passive_list:
-                executor.submit(func, port, *args, **kwargs))
+                executor.submit(func, port, *args, **kwargs)
     return wrapper
 
 def use_thread(func):
