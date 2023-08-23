@@ -12,9 +12,13 @@ app = Flask(__name__)
 CORS(app, supports_credentials=True)
 
 
-@app.route('/getSampleList', methods=['POST'])
-def get_sample_list():
-    return pp.get_sample_list()
+@app.route('/initSampleAlign', methods=['POST'])
+def init_sample_align():
+    return pp.init_sample_align()
+
+@app.route('/getSampleAlign', methods=['POST'])
+def get_sample_align():
+    return pp.get_sample_align()
 
 @app.route('/recvSampleList', methods=['POST'])
 def recv_sample_list():

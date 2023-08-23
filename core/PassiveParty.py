@@ -51,7 +51,7 @@ class PassiveParty:
         logger.info(f'{self.name.upper()}: Received public key {str(pub_dict["n"])[:10]}. ')
         return msg_name_file(self.name, '')     # 将本方名称返回给主动方，用于主动方保存名称->端口的映射
 
-    def get_sample_list(self):
+    def init_sample_align(self):
         self.sample_align()
         return msg_empty()
 

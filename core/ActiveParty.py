@@ -10,7 +10,7 @@ from core.Calculator import Calculator
 from utils.log import logger
 from utils.params import temp_root
 from utils.encryption import serialize_pub_key, serialize_encrypted_number, load_encrypted_number
-from utils.decorators import broadcast
+from utils.decorators import broadcast, poll
 from msgs.messages import msg_empty, msg_name_file, msg_gradient_file
 
 
@@ -75,6 +75,14 @@ class ActiveParty:
         """
         lock = threading.Lock()
 
+        # 通知被动方计算样本列表的哈希值
+        @broadcast
+        def init_sample_align(port: int):
+            logger.debug(f'{self.name.upper()}: Initiating sample alignment. ')
+            requests.post(f'http://127.0.0.1:{port}/initSampleAlign')
+        init_sample_align()
+        
+        # 主动方计算样本列表哈希值
         from utils.sha1 import sha1
 
         train_idx = self.dataset.index.tolist()
@@ -85,15 +93,16 @@ class ActiveParty:
             valid_idx = self.validset.index.tolist()
             valid_idx_map = {sha1(idx): idx for idx in valid_idx}
             valid_hash = set(valid_idx_map.keys())
-
         
-        # 向所有被动方请求样本列表，返回时依次求交
-        @broadcast
+        # 轮询被动方，返回哈希后的样本列表，随后依次求交
+        @poll
         def recv_sample_list(port: int):
             nonlocal train_hash, valid_hash
 
-            data = msg_empty()
-            recv_data = requests.post(f'http://127.0.0.1:{port}/getSampleList', data=data).json()
+            recv_data = requests.post(f'http://127.0.0.1:{port}/getSampleAlign').json()
+            if 'party_name' not in recv_data:       # 返回了空字典
+                return False
+            
             with open(recv_data['file_name'], 'r') as f:
                 hash_data = json.load(f)
             logger.info(f'{self.name.upper()}: Received sample list from {recv_data["party_name"]}')
@@ -103,7 +112,7 @@ class ActiveParty:
             if self.validset is not None:
                 valid_hash = valid_hash.intersection(set(hash_data['valid_hash']))
             lock.release()
-
+            return True
         recv_sample_list()
         
         logger.info(f'{self.name.upper()}: Sample alignment finished. Intersect trainset contains {len(train_hash)} samples. ')
