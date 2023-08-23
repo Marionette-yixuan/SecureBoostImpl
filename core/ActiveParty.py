@@ -26,7 +26,8 @@ class ActiveParty:
 
         self.model = Model()
 
-        self.passive_port = {}
+        self.passive_port = {}          # 被动方的名称 - 端口号对应
+        self.revese_passive_port = {}   # 端口号 - 名称对应
 
         # 训练中临时变量
         self.cur_split_node = None      # 当前正在分裂的节点
@@ -65,6 +66,7 @@ class ActiveParty:
             logger.info(f'Sending public key. ')
             recv_data = requests.post(f'http://127.0.0.1:{port}/recvActivePubKey', data=data).json()
             self.passive_port[recv_data['party_name']] = port
+            self.revese_passive_port[port] = recv_data['party_name']
 
         send_pub_key(file_name)
         logger.info(f'{self.name.upper()}: Public key broadcasted to all passive parties. ')
@@ -114,7 +116,6 @@ class ActiveParty:
             lock.release()
             return True
         recv_sample_list()
-        
         logger.info(f'{self.name.upper()}: Sample alignment finished. Intersect trainset contains {len(train_hash)} samples. ')
 
         train_hash, valid_hash = list(train_hash), list(valid_hash)     # 将求交后的哈希集合转换为列表
@@ -134,7 +135,6 @@ class ActiveParty:
             data = msg_name_file(self.name, file_name)
             logger.debug(f'Sending aligned sample: {data}.')
             requests.post(f'http://127.0.0.1:{port}/recvSampleList', data=data)
-
         send_aligned_sample(file_name)
         logger.info(f'{self.name.upper()}: Aligned sample broadcasted to all passive parties. ')
 
@@ -181,9 +181,43 @@ class ActiveParty:
         g, h = Calculator.grad(self.cur_preds, self.dataset)
         self.model.update_gradients(g, h, self.pub_key)
 
+    def splits_score(self, instance_space: list) -> tuple:
+        """
+        主动方计算最佳分裂点，返回最佳分裂点信息
+        """
+        local_best_split = None
+        for feature in [col for col in self.dataset.columns if col != 'y']:
+            feature_values = self.dataset.loc[instance_space, feature].sort_values(ascending=True)
+            split_indices = [int(qt * len(feature_values)) for qt in Calculator.quantile]
+
+            for si in split_indices:
+                left_space, right_space = feature_values.iloc[si:].index.tolist(), feature_values.iloc[:si].index.tolist()
+                thresh = feature_values.iloc[si]
+                split_score = Calculator.split_score_active(self.model.grad, self.model.hess, left_space, right_space)
+                if not local_best_split or local_best_split[2] < split_score:
+                    local_best_split = (feature, thresh, split_score, left_space)
+
+        return local_best_split
+
+    def passive_best_split_score(self, splits_file: str, full_grad_sum: float, full_hess_sum: float) -> tuple:
+        """
+        一个被动方的最佳分裂点增益
+        """
+        with open(splits_file, 'r') as f:
+            splits_data = json.load(f)
+        
+        local_best_split = None
+        for idx, split in enumerate(splits_data):
+            left_grad_sum, left_hess_sum = load_encrypted_number(split['grad_left'], self.pub_key), load_encrypted_number(split['hess_left'], self.pub_key)     # 反序列化
+            left_grad_sum, left_hess_sum = self.pri_key.decrypt(left_grad_sum), self.pri_key.decrypt(left_hess_sum)         # 解密
+            split_score = Calculator.split_score_passive(left_grad_sum, left_hess_sum, full_grad_sum, full_hess_sum)
+            if not local_best_split or split_score > local_best_split[1]:
+                local_best_split = (idx, split_score)
+        
+        return local_best_split
+
     def train(self):
         self.broadcast_pub_key()
-        logger.debug(f'Passive party ports: {self.passive_port}. ')
         self.sample_align()
         while self.train_status():
             spliting_node = self.split_nodes.popleft()
@@ -201,21 +235,29 @@ class ActiveParty:
                 data = msg_gradient_file(self.name, instance_space_file, self.model.grad_file, self.model.hess_file)
                 logger.info(f'Sending gradients. ')
                 requests.post(f'http://127.0.0.1:{port}/recvGradients', data=data)
-
             send_gradients(instance_space_file)
             logger.info(f'{self.name.upper()}: Gradients broadcasted to all passive parties. ')
 
-            # TODO 主动方计算分裂点
+            local_best_split = self.splits_score(instance_space)
+            global_splits = (self.name, 0, local_best_split[2])         # 全局最优分裂点 (训练方名称, 分裂点存储下标, 分裂增益)
+            logger.info(f'{self.name.upper()}: Active best split point confirmed. ')
+
+            full_grad_sum, full_hess_sum = self.model.grad[instance_space].sum(), self.model.hess[instance_space].sum()
 
             # 收集被动方的梯度信息
             @poll
             def get_splits_sum(port: int) -> bool:
+                nonlocal global_splits
                 recv_data = requests.post(f'http://127.0.0.1:{port}/getSplitsSum').json()
                 if '' in recv_data:
                     return False
-                logger.info(f'{self.name.upper()}: Received split sum, file name: {recv_data["file_name"]}. ')
+                logger.info(f'{self.name.upper()}: Received split sum from {self.revese_passive_port[port]}. ')
+                passive_best_split = self.passive_best_split_score(recv_data['file_name'], full_grad_sum, full_hess_sum)
+                if passive_best_split[1] > global_splits[2]:
+                    global_splits = (self.revese_passive_port[port], passive_best_split[0], passive_best_split[1])
                 return True
             get_splits_sum()
+            logger.info(f'{self.name.upper()}: Global best split point confirmed, belongs to {global_splits[0]}. ')
 
 
 class Model:
