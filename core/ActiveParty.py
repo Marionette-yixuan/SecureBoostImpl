@@ -40,7 +40,7 @@ class ActiveParty:
         """
         dataset = pd.read_csv(data_path)
         dataset['id'] = dataset['id'].astype(str)
-        self.dataset = dataset.set_index('id').iloc[:200]
+        self.dataset = dataset.set_index('id')
 
         if valid_path:
             validset = pd.read_csv(valid_path)

@@ -32,7 +32,7 @@ class PassiveParty:
         """
         dataset = pd.read_csv(data_path)
         dataset['id'] = dataset['id'].astype(str)
-        self.dataset = dataset.set_index('id').iloc[:200]
+        self.dataset = dataset.set_index('id')
 
         if valid_path:
             validset = pd.read_csv(valid_path)
@@ -50,13 +50,19 @@ class PassiveParty:
         self.active_pub_key = load_pub_key(pub_dict)
         logger.info(f'{self.name.upper()}: Received public key {str(pub_dict["n"])[:10]}. ')
         return msg_name_file(self.name, '')     # 将本方名称返回给主动方，用于主动方保存名称->端口的映射
-        
-    def get_sample_list(self) -> str:
+
+    def get_sample_list(self):
+        self.sample_align()
+        return msg_empty()
+
+    @use_thread
+    def sample_align(self):
         """
         向主动方返回加密后的样本列表文件
         """
         from utils.sha1 import sha1
 
+        self.train_status = 'Busy'
         train_idx = self.dataset.index.tolist()
         train_idx_map = {sha1(idx): idx for idx in train_idx}
         train_hash = list(train_idx_map.keys())
@@ -79,14 +85,21 @@ class PassiveParty:
             'valid_hash': valid_hash
         }
 
-        file_name = os.path.join(temp_root['file'][self.id], f'sample_align.json')
-        with open(file_name, 'w+') as f:
+        sample_file = os.path.join(temp_root['file'][self.id], f'sample_align.json')
+        with open(sample_file, 'w+') as f:
             json.dump(json_data, f)
 
-        logger.info(f'{self.name.upper()}: Send sample to active party. ')
-
-        return msg_name_file(self.name, file_name)
+        self.temp_file = sample_file
+        self.train_status = 'Ready'
+        logger.info(f'{self.name.upper()}: Sample hash finished, ready to return. ')
     
+    def get_sample_align(self):
+        if self.train_status != 'Ready':
+            return msg_empty()
+        else:
+            self.train_status = 'Idle'
+            return msg_name_file(self.name, self.temp_file)
+
     def recv_sample_list(self, file_name: str) -> str:
         """
         根据主动方对齐后返回的样本列表文件更新本地数据集
@@ -112,11 +125,11 @@ class PassiveParty:
         """
         主动方将数据发送给被动方，被动方开启线程进行训练
         """
-        self.train(recv_dict)
+        self.splits_sum(recv_dict)
         return msg_empty()
         
     @use_thread
-    def train(self, recv_dict: dict):
+    def splits_sum(self, recv_dict: dict):
         """
         根据主动方发来的数据计算可能的最佳分裂点
         """
@@ -165,4 +178,5 @@ class PassiveParty:
         if self.train_status != 'Ready':
             return msg_empty()
         else:
+            self.train_status = 'Idle'
             return msg_name_file(self.name, self.temp_file)
