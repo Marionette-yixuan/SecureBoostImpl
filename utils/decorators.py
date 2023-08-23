@@ -1,3 +1,4 @@
+import functools
 from concurrent.futures import ThreadPoolExecutor
 from utils.params import passive_list
 
@@ -8,18 +9,19 @@ def broadcast(func):
     func 方法的第一个参数必须为 port
     """
     def wrapper(*args, **kwargs):
-        with ThreadPoolExecutor(10) as executor:
-            for port in passive_list:
-                executor.submit(func, port, *args, **kwargs)
+        executor = ThreadPoolExecutor(10)
+        for port in passive_list:
+            executor.submit(func, port, *args, **kwargs)
     return wrapper
 
 def use_thread(func):
     """
     将方法用线程调用
     """
+    @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        with ThreadPoolExecutor(10) as executor:
-            executor.submit(func, *args, **kwargs)
+        executor = ThreadPoolExecutor(10)
+        executor.submit(func, *args, **kwargs)
     return wrapper
 
 def poll(func):
@@ -29,12 +31,14 @@ def poll(func):
     """
     def wrapper(*args, **kwargs):
         check_dict = {port: False for port in passive_list}
-        with ThreadPoolExecutor(10) as executor:
-            while not all(checked for checked in check_dict.values()):
-                for port in check_dict:
-                    if check_dict[port]:
-                        continue
-                    future = executor.submit(func, port, *args, **kwargs)
-                    if future.result():
-                        check_dict[port] = True
+        executor = ThreadPoolExecutor(10)
+        while not all(checked for checked in check_dict.values()):
+            for port in check_dict:
+                if check_dict[port]:
+                    continue
+                future = executor.submit(func, port, *args, **kwargs)
+                if future.result():
+                    check_dict[port] = True
+            import time
+            time.sleep(0.5)     # 每轮之间休息 0.5 秒
     return wrapper

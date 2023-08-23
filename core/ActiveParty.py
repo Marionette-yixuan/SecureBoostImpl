@@ -96,11 +96,11 @@ class ActiveParty:
         
         # 轮询被动方，返回哈希后的样本列表，随后依次求交
         @poll
-        def recv_sample_list(port: int):
+        def recv_sample_list(port: int) -> bool:
             nonlocal train_hash, valid_hash
 
             recv_data = requests.post(f'http://127.0.0.1:{port}/getSampleAlign').json()
-            if 'party_name' not in recv_data:       # 返回了空字典
+            if '' in recv_data:       # 返回了空字典
                 return False
             
             with open(recv_data['file_name'], 'r') as f:
@@ -205,13 +205,17 @@ class ActiveParty:
             send_gradients(instance_space_file)
             logger.info(f'{self.name.upper()}: Gradients broadcasted to all passive parties. ')
 
-            while True:
-                import time
-                port = 10001
+            # TODO 主动方计算分裂点
+
+            # 收集被动方的梯度信息
+            @poll
+            def get_splits_sum(port: int) -> bool:
                 recv_data = requests.post(f'http://127.0.0.1:{port}/getSplitsSum').json()
-                if 'party_name' in recv_data:
-                    logger.info(f'Received from {port}, file name: {recv_data["file_name"]}. ')
-                time.sleep(2)
+                if '' in recv_data:
+                    return False
+                logger.info(f'{self.name.upper()}: Received split sum, file name: {recv_data["file_name"]}. ')
+                return True
+            get_splits_sum()
 
 
 class Model:
