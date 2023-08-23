@@ -11,7 +11,7 @@ from utils.log import logger
 from utils.params import temp_root
 from utils.encryption import serialize_pub_key, serialize_encrypted_number, load_encrypted_number
 from utils.decorators import broadcast, poll
-from msgs.messages import msg_empty, msg_name_file, msg_gradient_file
+from msgs.messages import msg_empty, msg_name_file, msg_gradient_file, msg_split_confirm
 
 
 class ActiveParty:
@@ -221,6 +221,9 @@ class ActiveParty:
         self.sample_align()
         while self.train_status():
             spliting_node = self.split_nodes.popleft()
+            # 检查叶子节点能否继续分裂（到达深度 / 样本过少都会停止分裂）
+            if not spliting_node.splitable():
+                continue
             logger.info(f'{self.name.upper()}: Splitting node {spliting_node.id}. ')
 
             # 准备好本节点训练所用的文件
@@ -238,13 +241,14 @@ class ActiveParty:
             send_gradients(instance_space_file)
             logger.info(f'{self.name.upper()}: Gradients broadcasted to all passive parties. ')
 
+            # 主动方计算最佳分裂点
             local_best_split = self.splits_score(instance_space)
             global_splits = (self.name, 0, local_best_split[2])         # 全局最优分裂点 (训练方名称, 分裂点存储下标, 分裂增益)
             logger.info(f'{self.name.upper()}: Active best split point confirmed. ')
 
             full_grad_sum, full_hess_sum = self.model.grad[instance_space].sum(), self.model.hess[instance_space].sum()
 
-            # 收集被动方的梯度信息
+            # 收集被动方的梯度信息，并确定最佳分裂点
             @poll
             def get_splits_sum(port: int) -> bool:
                 nonlocal global_splits
@@ -257,8 +261,42 @@ class ActiveParty:
                     global_splits = (self.revese_passive_port[port], passive_best_split[0], passive_best_split[1])
                 return True
             get_splits_sum()
-            logger.info(f'{self.name.upper()}: Global best split point confirmed, belongs to {global_splits[0]}. ')
+            logger.info(f'{self.name.upper()}: Global best split point confirmed, belongs to {global_splits[0]} with gain {global_splits[2]}. ')
+            if global_splits[2] < 0:                    # 如果分裂增益 < 0 则直接停止分裂
+                continue
+            
 
+            # 根据最佳分裂点进行分裂 / 请求被动方确认
+            if global_splits[0] == self.name:           # 最佳分裂点属于主动方
+                feature_split = {
+                    'feature_name': local_best_split[0], 
+                    'feature_thresh': local_best_split[1]
+                }
+                left_space = local_best_split[3]
+                param = {
+                    'party_name': self.name, 
+                    'left_space': left_space, 
+                    'feature_split': feature_split
+                }
+                logger.info(f'{self.name.upper()}: Splitting on {feature_split["feature_name"]}. ')
+            else:
+                port = self.passive_port[global_splits[0]]      # 找到对应被动方的端口
+                data = msg_split_confirm(global_splits[0], global_splits[1])
+                recv_data = requests.post(f'http://127.0.0.1:{port}/confirmSplit', data=data).json()
+                look_up_id = recv_data['split_index']
+                logger.debug(f'Received confirm data, look up index: {look_up_id}. ')
+
+                # 获得分裂后的左空间
+                with open(recv_data['instance_space'], 'r') as f:
+                    left_space = json.load(f)
+                param = {
+                    'party_name': global_splits[0], 
+                    'left_space': left_space, 
+                    'look_up_id': look_up_id
+                }
+            left_node, right_node = spliting_node.split(**param)
+            self.split_nodes.extend([left_node, right_node])
+            
 
 class Model:
     def __init__(self, active_idx=0) -> None:
@@ -328,6 +366,25 @@ class TreeNode:
 
         # 节点权重
         self.weight = 0.0
+
+    def splitable(self):
+        """
+        当节点的标号达到了足够的深度，或者节点的样本数量足够少时，不再尝试分裂
+        """
+        if self.id >= 2 ** (Calculator.max_depth - 1) - 1:
+            return False
+        if len(self.instance_space) < Calculator.min_sample:
+            return False
+        return True
+
+    def split(self, party_name, left_space, feature_split=None, look_up_id=0):
+        right_space = list(set(self.instance_space) - set(left_space))
+        logger.debug(f'Left space: {len(left_space)}, right space: {len(right_space)}')
+        self.party_name = party_name
+        self.feature_split = feature_split
+        self.look_up_id = look_up_id
+        self.left, self.right = TreeNode(self.id * 2 + 1, left_space), TreeNode(self.id * 2 + 2, right_space)
+        return self.left, self.right
 
     def get_leaves(self):
         if not self.left and not self.right:

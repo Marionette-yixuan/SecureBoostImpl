@@ -12,7 +12,7 @@ class Calculator:
     # 样本空间的划分分位数
     quantile = np.linspace(0, 1, 9).tolist()[1:-1]
     # 节点的最小样本数量（如果低于该数量则不会再分裂）
-    min_sample = 8
+    min_sample = 20
     # 模型参数
     max_depth = 5       # 树最大深度
     max_trees = 4       # 最大树数量

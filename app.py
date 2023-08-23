@@ -42,6 +42,12 @@ def recv_gradients():
 def get_splits_sum():
     return pp.get_splits_sum()
 
+@app.route('/confirmSplit', methods=['POST'])
+def confirm_split():
+    recv_data = request.form.to_dict()
+    logger.debug(f'Request data: {request.form.keys()}. ')
+    return pp.confirm_split(recv_data)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help=False)

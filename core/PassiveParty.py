@@ -8,7 +8,7 @@ from utils.log import logger
 from utils.params import temp_root
 from utils.decorators import use_thread
 from utils.encryption import load_pub_key, serialize_encrypted_number, load_encrypted_number
-from msgs.messages import msg_empty, msg_name_file
+from msgs.messages import msg_empty, msg_name_file, msg_split_confirm
 
 
 class PassiveParty:
@@ -23,7 +23,7 @@ class PassiveParty:
 
         # 训练中临时变量
         self.train_status = ''              # 训练状态，取值为 ['Idle', 'Busy', 'Ready']
-        self.cur_splits = []                # 当前全部可能的分裂点信息
+        self.local_splits = []                # 当前全部可能的分裂点信息
         self.temp_file = ''                 # 临时保存的文件名，当 train_status 为特定值时返回
         self.feature_split_time = None      # 各特征的分裂次数
 
@@ -147,8 +147,8 @@ class PassiveParty:
         hess = hess.apply(load_encrypted_number, pub_key=self.active_pub_key)
 
         # 记录每种分裂方式的梯度和（用于返回给主动方）、分裂方式（用于临时保存），二者下标需要一一对应
-        logger.info(f'{self.name.upper()}: Gradients received, start calculating on {len(grad)} samples. ')
-        self.cur_splits = []
+        logger.info(f'{self.name.upper()}: Gradients received, start calculating on {len(instance_space)} samples. ')
+        self.local_splits = []
         cur_splits_sum = []
 
         for feature in [col for col in self.dataset.columns if col != 'y']:
@@ -160,7 +160,7 @@ class PassiveParty:
                 thresh = feature_values.iloc[si]
                 left_grad_sum, left_hess_sum = grad[left_space].sum(), hess[left_space].sum()
 
-                self.cur_splits.append((feature, thresh, left_space))
+                self.local_splits.append((feature, thresh, left_space))
                 cur_splits_sum.append({'grad_left': serialize_encrypted_number(left_grad_sum), 
                                        'hess_left': serialize_encrypted_number(left_hess_sum)})
        
@@ -181,3 +181,26 @@ class PassiveParty:
         else:
             self.train_status = 'Idle'
             return msg_name_file(self.name, self.temp_file)
+        
+    def confirm_split(self, recv_dict: dict):
+        """
+        对主动方二次请求的确认，将最佳分裂点计入查找表中
+        """
+        assert recv_dict['party_name'] == self.name, logger.error(f'Incorrect party name: \'{recv_dict["party_name"]}\'')
+        best_split = self.local_splits[recv_dict['split_index']]
+
+        # 新条目添加进查找表
+        look_up_index = self.look_up_table.shape[0]         # 查找表的最后一行作为新条目的下标
+        self.look_up_table.loc[look_up_index] = {
+            'feature_name': best_split[0], 
+            'feature_split': best_split[1]
+        }
+
+        # 返回给主动方
+        left_space_file = os.path.join(temp_root['file'][self.id], f'left_space.json')
+        with open(left_space_file, 'w+') as f:
+            json.dump(best_split[2], f)
+
+        logger.info(f'{self.name.upper()}: Confirmation received, update look up table on index: {look_up_index}. ')
+        
+        return msg_split_confirm(self.name, look_up_index, left_space_file)

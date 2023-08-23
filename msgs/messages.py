@@ -28,3 +28,14 @@ def msg_gradient_file(party_name: str, instance_space_file: str, grad_file: str,
         'hess': hess_file
     }
     return res_dict
+
+def msg_split_confirm(party_name: str, split_index: int, left_space: str=''):
+    """
+    传输分裂点信息确认的消息
+    """
+    res_dict = {
+        'party_name': party_name, 
+        'split_index': split_index,             
+        'left_space': left_space                # 被动方返回分裂后的左半空间（主动方发送确认时为空）
+    }
+    return res_dict
