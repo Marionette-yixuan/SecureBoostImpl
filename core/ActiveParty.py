@@ -297,7 +297,11 @@ class ActiveParty:
                 }
             left_node, right_node = spliting_node.split(**param)
             self.split_nodes.extend([left_node, right_node])
-            
+
+    def dump_model(self, file_path: str):
+        import time
+        with open(os.path.join(file_path, time.strftime('model%m%d%H%M.json', time.localtime())), 'w+') as f:
+            json.dump(self.model.dump(), f)
 
 class Model:
     def __init__(self, active_idx=0) -> None:
@@ -350,6 +354,11 @@ class Model:
             self.grad_enc.to_pickle(self.grad_file)
             self.hess_enc.to_pickle(self.hess_file)
 
+    def dump(self) -> str:
+        # logger.debug(f'Model length: {len(self.trees)}, tree 1 root: {self.trees[0].party_name}. ')
+        # logger.debug(f'{[tree for tree in self.trees]}')
+        data = [tree.dump() for tree in self.trees]
+        return data
 
 class TreeNode:
     def __init__(self, id: int, instance_space: list) -> None:
@@ -367,6 +376,26 @@ class TreeNode:
 
         # 节点权重
         self.weight = 0.0
+
+    def dump(self):
+        """
+        将以 self 为树根的树存储在字典中
+        """
+        data = { 'id': self.id }
+        if self.left:               # 左右子树一定同时存在或同时不存在，判断左子树即可。不为叶子节点，说明有分裂信息，没有权重
+            data['party_name'] = self.party_name
+
+            if self.feature_split:
+                data['feature_split'] = self.feature_split
+            else:
+                data['look_up_id'] = self.look_up_id
+            
+            data['left'] = self.left.dump()
+            data['right'] = self.right.dump()
+        else:
+            data['weight'] = self.weight
+
+        return data
 
     def splitable(self):
         """
@@ -394,3 +423,5 @@ class TreeNode:
             yield from self.left.get_leaves()
         if self.right:
             yield from self.right.get_leaves()
+
+        

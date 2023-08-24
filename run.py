@@ -41,3 +41,4 @@ if __name__ == '__main__':
     ap = ActiveParty()
     ap.load_dataset('static/data/ap_train.csv', 'static/data/ap_test.csv')
     ap.train()
+    ap.dump_model('static/model/')
