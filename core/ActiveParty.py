@@ -170,6 +170,7 @@ class ActiveParty:
             for leaf in root.get_leaves():
                 instance_space = leaf.instance_space
                 leaf.weight = Calculator.leaf_weight(self.model.grad, self.model.hess, instance_space)        # 计算叶子节点的权重
+                logger.debug(f'Leave {leaf.id}, weight: {leaf.weight}. Preds: {self.cur_preds.loc[instance_space].iloc[:5]}.')
                 self.cur_preds[instance_space] += leaf.weight                               # 更新该叶子节点中所有样本的预测值
         else:
             self.cur_preds = pd.Series(Calculator.init_pred, index=self.dataset.index)
@@ -287,7 +288,7 @@ class ActiveParty:
                 logger.debug(f'Received confirm data, look up index: {look_up_id}. ')
 
                 # 获得分裂后的左空间
-                with open(recv_data['instance_space'], 'r') as f:
+                with open(recv_data['left_space'], 'r') as f:
                     left_space = json.load(f)
                 param = {
                     'party_name': global_splits[0], 
@@ -390,6 +391,6 @@ class TreeNode:
         if not self.left and not self.right:
             yield self
         if self.left:
-            self.left.get_leaves()
+            yield from self.left.get_leaves()
         if self.right:
-            self.right.get_leaves()
+            yield from self.right.get_leaves()

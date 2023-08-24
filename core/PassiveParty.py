@@ -187,7 +187,8 @@ class PassiveParty:
         对主动方二次请求的确认，将最佳分裂点计入查找表中
         """
         assert recv_dict['party_name'] == self.name, logger.error(f'Incorrect party name: \'{recv_dict["party_name"]}\'')
-        best_split = self.local_splits[recv_dict['split_index']]
+        logger.debug(f'Received data: {recv_dict}. ')
+        best_split = self.local_splits[int(recv_dict['split_index'])]
 
         # 新条目添加进查找表
         look_up_index = self.look_up_table.shape[0]         # 查找表的最后一行作为新条目的下标
