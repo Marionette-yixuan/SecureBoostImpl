@@ -69,3 +69,19 @@ class Calculator:
         计算叶子节点的权重
         """
         return -grad[instance_space].sum() / (hess[instance_space].sum() + Calculator.lmd)
+    
+    @staticmethod
+    def accuracy(y_true: pd.Series, y_pred: pd.Series) -> dict:
+        """
+        计算准确率指标
+        """
+        y_pred = 1.0 / (1.0 + np.exp(-y_pred))
+        y_pred = y_pred.apply(lambda x: 1 if x > Calculator.output_thresh else 0)
+
+        from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+        return {
+            'accuracy': accuracy_score(y_true, y_pred),
+            'precision': precision_score(y_true, y_pred),
+            'recall': recall_score(y_true, y_pred),
+            'f1': f1_score(y_true, y_pred)
+        }

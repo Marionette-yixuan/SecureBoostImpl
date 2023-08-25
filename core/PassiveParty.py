@@ -17,7 +17,7 @@ class PassiveParty:
         self.name = f'party{self.id}'          # 被动方名称
         self.active_pub_key = None             # 主动方的公钥，用于数据加密
         self.dataset = None                 # 训练集
-        self.validset = None                # 验证集
+        self.testset = None                 # 测试集
 
         self.look_up_table = pd.DataFrame(columns=['feature_name', 'feature_thresh'])           # 查找表
 
@@ -38,7 +38,7 @@ class PassiveParty:
         if valid_path:
             validset = pd.read_csv(valid_path)
             validset['id'] = validset['id'].astype(str)
-            self.validset = validset.set_index('id')
+            self.testset = validset.set_index('id')
 
         self.feature_split_time = pd.Series(0, index=self.dataset.index)
 
@@ -68,8 +68,8 @@ class PassiveParty:
         train_idx_map = {sha1(idx): idx for idx in train_idx}
         train_hash = list(train_idx_map.keys())
 
-        if self.validset is not None:
-            valid_idx = self.validset.index.tolist()
+        if self.testset is not None:
+            valid_idx = self.testset.index.tolist()
             valid_idx_map = {sha1(idx): idx for idx in valid_idx}
             valid_hash = list(valid_idx_map.keys())
 
@@ -116,9 +116,9 @@ class PassiveParty:
 
         logger.info(f'{self.name.upper()}: Received aligned sample with train length {len(train_idx)}. ')
 
-        if self.validset is not None:
+        if self.testset is not None:
             valid_idx = [map_data['valid_map'][vh] for vh in hash_data['valid_hash']]
-            self.validset = self.validset.loc[valid_idx, :]
+            self.testset = self.testset.loc[valid_idx, :]
 
         return msg_empty()
     
@@ -204,4 +204,31 @@ class PassiveParty:
 
         logger.info(f'{self.name.upper()}: Confirmation received, update look up table on index: {look_up_index}. ')
         
-        return msg_split_confirm(self.name, look_up_index, left_space_file)
+        return msg_split_confirm(self.name, int(look_up_index), left_space_file)
+
+    def predict(self, recv_dict: dict):
+        """
+        根据主动方传来的样本空间、查找表条目将样本空间分割成左右部分返回
+        """
+        party_name = recv_dict['party_name']
+        instance_space_file = recv_dict['instance_space']
+        look_up_id = int(recv_dict['look_up_id'])
+
+        assert party_name == self.name, logger.error(f'Incorrect party name: \'{party_name}\'. ')
+
+        with open(instance_space_file, 'r') as f:
+            instance_space = json.load(f)
+
+        logger.info(f'{self.name.upper()}: Predicting on {len(instance_space)} samples. ')
+        look_up_entry = self.look_up_table.iloc[look_up_id]
+        feature_name, feature_thresh = look_up_entry['feature_name'], look_up_entry['feature_thresh']
+
+        left_space = self.dataset.loc[instance_space, feature_name] >= feature_thresh
+        left_space = left_space[left_space].index.tolist()
+        right_space = [idx for idx in instance_space if idx not in left_space]
+
+        split_space_file = os.path.join(temp_root['file'][self.id], f'split_space.json')
+        with open(split_space_file, 'w+') as f:
+            json.dump({'left_space': left_space, 'right_space': right_space}, f)
+        
+        return msg_name_file(self.name, split_space_file)

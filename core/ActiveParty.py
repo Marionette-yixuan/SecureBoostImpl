@@ -10,7 +10,7 @@ from core.Calculator import Calculator
 from utils.log import logger
 from utils.params import temp_root
 from utils.encryption import serialize_pub_key, serialize_encrypted_number, load_encrypted_number
-from utils.decorators import broadcast, poll
+from utils.decorators import broadcast, use_thread, poll
 from msgs.messages import msg_empty, msg_name_file, msg_gradient_file, msg_split_confirm
 
 
@@ -22,7 +22,7 @@ class ActiveParty:
         logger.info(f'{self.name.upper()}: Paillier key generated. ')
 
         self.dataset = None
-        self.validset = None
+        self.testset = None
 
         self.model = Model()
 
@@ -35,18 +35,18 @@ class ActiveParty:
         self.cur_preds = None
         self.feature_split_time = None  # 各特征的分裂次数
 
-    def load_dataset(self, data_path: str, valid_path: str=None):
+    def load_dataset(self, data_path: str, test_path: str=None):
         """
         加载数据集
         """
         dataset = pd.read_csv(data_path)
         dataset['id'] = dataset['id'].astype(str)
-        self.dataset = dataset.set_index('id').iloc[:5000]
+        self.dataset = dataset.set_index('id')
 
-        if valid_path:
-            validset = pd.read_csv(valid_path)
-            validset['id'] = validset['id'].astype(str)
-            self.validset = validset.set_index('id')
+        if test_path:
+            testset = pd.read_csv(test_path)
+            testset['id'] = testset['id'].astype(str)
+            self.testset = testset.set_index('id')
 
         self.cur_preds = pd.Series(Calculator.init_pred, index=self.dataset.index)
         self.feature_split_time = pd.Series(0, index=self.dataset.index)
@@ -91,8 +91,8 @@ class ActiveParty:
         train_idx_map = {sha1(idx): idx for idx in train_idx}
         train_hash = set(train_idx_map.keys())
 
-        if self.validset is not None:
-            valid_idx = self.validset.index.tolist()
+        if self.testset is not None:
+            valid_idx = self.testset.index.tolist()
             valid_idx_map = {sha1(idx): idx for idx in valid_idx}
             valid_hash = set(valid_idx_map.keys())
         
@@ -111,7 +111,7 @@ class ActiveParty:
             
             lock.acquire()          # 加锁防止完整性破坏
             train_hash = train_hash.intersection(set(hash_data['train_hash']))
-            if self.validset is not None:
+            if self.testset is not None:
                 valid_hash = valid_hash.intersection(set(hash_data['valid_hash']))
             lock.release()
             return True
@@ -139,8 +139,8 @@ class ActiveParty:
         logger.info(f'{self.name.upper()}: Aligned sample broadcasted to all passive parties. ')
 
         self.dataset = self.dataset.loc[[train_idx_map[th] for th in train_hash], :]
-        if self.validset is not None:
-            self.validset = self.validset.loc[[valid_idx_map[vh] for vh in valid_hash], :]
+        if self.testset is not None:
+            self.testset = self.testset.loc[[valid_idx_map[vh] for vh in valid_hash], :]
 
     def train_status(self):
         """
@@ -170,8 +170,8 @@ class ActiveParty:
             for leaf in root.get_leaves():
                 instance_space = leaf.instance_space
                 leaf.weight = Calculator.leaf_weight(self.model.grad, self.model.hess, instance_space)        # 计算叶子节点的权重
-                logger.debug(f'Leave {leaf.id}, weight: {leaf.weight}. Preds: {self.cur_preds.loc[instance_space].iloc[:5]}.')
                 self.cur_preds[instance_space] += leaf.weight                               # 更新该叶子节点中所有样本的预测值
+            logger.info(f'{self.name.upper()}: Accuracy after tree {len(self.model)-1}: {Calculator.accuracy(self.dataset["y"], self.cur_preds)}')          # 计算准确率
         else:
             self.cur_preds = pd.Series(Calculator.init_pred, index=self.dataset.index)
 
@@ -312,6 +312,7 @@ class ActiveParty:
             file_path = os.path.join(file_path, time.strftime('model%m%d%H%M.json', time.localtime()))
 
         with open(file_path, 'w+') as f:
+            logger.debug(self.model.dump())
             json.dump(self.model.dump(), f)
         logger.info(f'{self.name.upper()}: Model dumped to {file_path}. ')
         return file_path
@@ -326,6 +327,66 @@ class ActiveParty:
             self.model.load(tree_data)
         logger.info(f'{self.name.upper()}: Model loaded from {file_path}. ')
 
+    def predict(self):
+        """
+        对测试集进行预测
+        """
+        if self.testset is None:
+            logger.error(f'{self.name.upper()}: No testset loaded. ')
+            return
+        
+        logger.info(f'{self.name.upper()}: Start predicting. ')
+        self.split_nodes = deque()
+        preds = pd.Series(Calculator.init_pred, index=self.testset.index)
+
+        for tree in self.model:
+            tree.instance_space = self.testset.index.tolist()
+            self.split_nodes.append(tree)               # 树根入队
+            while len(self.split_nodes):
+                spliting_node = self.split_nodes.popleft()
+                instance_space = spliting_node.instance_space
+                if not spliting_node.left:                              # 为叶子节点
+                    preds[instance_space] += spliting_node.weight
+                    continue
+                elif spliting_node.party_name == self.name:             # 为主动方的分裂节点
+                    # 分裂样本空间
+                    logger.info(f'{self.name.upper()}: Splitting on node {spliting_node.id} from {spliting_node.party_name}. ')
+                    feature_name, feature_thresh = spliting_node.feature_split['feature_name'], spliting_node.feature_split['feature_thresh']
+                    left_space = self.testset.loc[instance_space, feature_name] >= feature_thresh
+                    left_space = left_space[left_space].index.tolist()
+                    right_space = [idx for idx in instance_space if idx not in left_space]
+                    
+                    spliting_node.left.instance_space = left_space
+                    spliting_node.right.instance_space = right_space
+
+                    self.split_nodes.extend([spliting_node.left, spliting_node.right])
+                else:                                                   # 为被动方的分裂节点
+                    logger.info(f'{self.name.upper()}: Splitting on node {spliting_node.id} from {spliting_node.party_name}. ')
+                    party_name = spliting_node.party_name
+                    look_up_id = spliting_node.look_up_id
+                    instance_space_file = os.path.join(temp_root['file'][self.id], f'instance_space.json')
+                    with open(instance_space_file, 'w+') as f:
+                        json.dump(instance_space, f)
+
+                    @use_thread
+                    def get_passive_split(party_name: str, instance_space_file: str, look_up_id: int):
+                        port = self.passive_port[party_name]
+                        data = msg_name_file(self.name, instance_space_file, look_up_id)
+                        logger.info(f'{self.name.upper()}: Sending prediction request to {party_name}. ')
+                        recv_data = requests.post(f'http://127.0.0.1:{port}/getPassiveSplit', data=data).json()
+
+                        with open(recv_data['file_name'], 'r') as f:
+                            split_space = json.load(f)
+                        left_space, right_space = split_space['left_space'], split_space['right_space']
+
+                        spliting_node.left.instance_space = left_space
+                        spliting_node.right.instance_space = right_space
+
+                        self.split_nodes.extend([spliting_node.left, spliting_node.right])
+                    
+                    get_passive_split(party_name, instance_space_file, look_up_id)
+
+        logger.info(f'{self.name.upper()}: Test accuracy: {Calculator.accuracy(self.testset["y"], preds)}. ')
 
 class Model:
     def __init__(self, active_idx=0) -> None:
@@ -379,8 +440,6 @@ class Model:
             self.hess_enc.to_pickle(self.hess_file)
 
     def dump(self) -> str:
-        # logger.debug(f'Model length: {len(self.trees)}, tree 1 root: {self.trees[0].party_name}. ')
-        # logger.debug(f'{[tree for tree in self.trees]}')
         data = [tree.dump() for tree in self.trees]
         return data
 
@@ -390,6 +449,7 @@ class Model:
         """
         root = TreeNode().load(tree_dict)
         self.trees.append(root)
+
 
 class TreeNode:
     def __init__(self, id: int=0, instance_space: list=None) -> None:

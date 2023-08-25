@@ -48,6 +48,12 @@ def confirm_split():
     logger.debug(f'Request data: {request.form.keys()}. ')
     return pp.confirm_split(recv_data)
 
+@app.route('/getPassiveSplit', methods=['POST'])
+def get_passive_split():
+    recv_data = request.form.to_dict()
+    logger.debug(f'Request data: {request.form.keys()}. ')
+    return pp.get_passive_split(recv_data)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(add_help=False)
