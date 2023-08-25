@@ -27,7 +27,7 @@ class ActiveParty:
         self.model = Model()
 
         self.passive_port = {}          # 被动方的名称 - 端口号对应
-        self.revese_passive_port = {}   # 端口号 - 名称对应
+        self.reverse_passive_port = {}   # 端口号 - 名称对应
 
         # 训练中临时变量
         self.cur_split_node = None      # 当前正在分裂的节点
@@ -41,7 +41,7 @@ class ActiveParty:
         """
         dataset = pd.read_csv(data_path)
         dataset['id'] = dataset['id'].astype(str)
-        self.dataset = dataset.set_index('id')
+        self.dataset = dataset.set_index('id').iloc[:5000]
 
         if valid_path:
             validset = pd.read_csv(valid_path)
@@ -66,7 +66,7 @@ class ActiveParty:
             logger.info(f'Sending public key. ')
             recv_data = requests.post(f'http://127.0.0.1:{port}/recvActivePubKey', data=data).json()
             self.passive_port[recv_data['party_name']] = port
-            self.revese_passive_port[port] = recv_data['party_name']
+            self.reverse_passive_port[port] = recv_data['party_name']
 
         send_pub_key(file_name)
         logger.info(f'{self.name.upper()}: Public key broadcasted to all passive parties. ')
@@ -256,10 +256,10 @@ class ActiveParty:
                 recv_data = requests.post(f'http://127.0.0.1:{port}/getSplitsSum').json()
                 if '' in recv_data:
                     return False
-                logger.info(f'{self.name.upper()}: Received split sum from {self.revese_passive_port[port]}. ')
+                logger.info(f'{self.name.upper()}: Received split sum from {self.reverse_passive_port[port]}. ')
                 passive_best_split = self.passive_best_split_score(recv_data['file_name'], full_grad_sum, full_hess_sum)
                 if passive_best_split[1] > global_splits[2]:
-                    global_splits = (self.revese_passive_port[port], passive_best_split[0], passive_best_split[1])
+                    global_splits = (self.reverse_passive_port[port], passive_best_split[0], passive_best_split[1])
                 return True
             get_splits_sum()
             logger.info(f'{self.name.upper()}: Global best split point confirmed, belongs to {global_splits[0]} with gain {global_splits[2]}. ')
@@ -299,9 +299,33 @@ class ActiveParty:
             self.split_nodes.extend([left_node, right_node])
 
     def dump_model(self, file_path: str):
-        import time
-        with open(os.path.join(file_path, time.strftime('model%m%d%H%M.json', time.localtime())), 'w+') as f:
+        """
+        将模型存储到指定路径
+        """
+        # 判断给定路径是文件夹还是文件
+        dir_path, file_name = os.path.split(file_path)
+        if not os.path.exists(dir_path):
+            logger.error(f'{self.name.upper()}: Model saving path not exists: \'{dir_path}\'. ')
+            return
+        if not file_name:
+            import time
+            file_path = os.path.join(file_path, time.strftime('model%m%d%H%M.json', time.localtime()))
+
+        with open(file_path, 'w+') as f:
             json.dump(self.model.dump(), f)
+        logger.info(f'{self.name.upper()}: Model dumped to {file_path}. ')
+        return file_path
+
+    def load_model(self, file_path: str):
+        """
+        从指定路径加载模型
+        """
+        with open(file_path, 'r') as f:
+            model_data = json.load(f)
+        for tree_data in model_data:
+            self.model.load(tree_data)
+        logger.info(f'{self.name.upper()}: Model loaded from {file_path}. ')
+
 
 class Model:
     def __init__(self, active_idx=0) -> None:
@@ -360,8 +384,15 @@ class Model:
         data = [tree.dump() for tree in self.trees]
         return data
 
+    def load(self, tree_dict: dict):
+        """
+        将字典中的数据加载成一棵新树加入模型
+        """
+        root = TreeNode().load(tree_dict)
+        self.trees.append(root)
+
 class TreeNode:
-    def __init__(self, id: int, instance_space: list) -> None:
+    def __init__(self, id: int=0, instance_space: list=None) -> None:
         self.id = id                            # 节点标号
         self.instance_space = instance_space    # 节点包含的样本空间（只在训练和预测过程中有用，不会存储）
 
@@ -396,6 +427,26 @@ class TreeNode:
             data['weight'] = self.weight
 
         return data
+
+    def load(self, tree_dict: dict):
+        """
+        根据字典中的数据加载树
+        """
+        self.id = tree_dict['id']
+        if 'party_name' in tree_dict:            # 不为叶子节点
+            self.party_name = tree_dict['party_name']
+            if 'feature_split' in tree_dict:
+                self.feature_split = tree_dict['feature_split']
+            else:
+                self.look_up_id = tree_dict['look_up_id']
+            self.left = TreeNode(0, [])
+            self.left.load(tree_dict['left'])
+            self.right = TreeNode(0, [])
+            self.right.load(tree_dict['right'])
+        else:
+            self.weight = tree_dict['weight']
+
+        return self
 
     def splitable(self):
         """

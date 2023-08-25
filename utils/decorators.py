@@ -40,5 +40,5 @@ def poll(func):
                 if future.result():
                     check_dict[port] = True
             import time
-            time.sleep(1)     # 每轮之间休息 1 秒
+            time.sleep(0.5)     # 每轮之间休息 0.5 秒
     return wrapper
