@@ -44,3 +44,4 @@ if __name__ == '__main__':
     # file_name = ap.dump_model('static/model/')
     # ap.load_model(file_name)
     ap.predict()
+    

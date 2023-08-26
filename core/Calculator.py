@@ -85,3 +85,4 @@ class Calculator:
             'recall': recall_score(y_true, y_pred),
             'f1': f1_score(y_true, y_pred)
         }
+    

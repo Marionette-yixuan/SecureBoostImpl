@@ -388,6 +388,7 @@ class ActiveParty:
 
         logger.info(f'{self.name.upper()}: Test accuracy: {Calculator.accuracy(self.testset["y"], preds)}. ')
 
+
 class Model:
     def __init__(self, active_idx=0) -> None:
         self.trees = []

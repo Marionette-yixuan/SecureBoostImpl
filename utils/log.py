@@ -22,3 +22,4 @@ logger.addHandler(file_handler)
 if __name__ == '__main__':
     logger.info('This is a test log. ')
     logger.debug('This is a test debug log. ')
+    

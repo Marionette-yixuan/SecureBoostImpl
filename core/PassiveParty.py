@@ -232,3 +232,4 @@ class PassiveParty:
             json.dump({'left_space': left_space, 'right_space': right_space}, f)
         
         return msg_name_file(self.name, split_space_file)
+    
