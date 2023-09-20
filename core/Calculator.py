@@ -7,8 +7,8 @@ from utils.log import logger
 class Calculator:
     ## 训练时使用的参数，设计为该类的静态变量
     # 计算梯度
-    lmd = 30.0
-    gma = 0.0
+    lmd = 50.0
+    gma = 5.0
     # 样本空间的划分分位数
     quantile = np.linspace(0, 1, 9).tolist()[1:-1]
     # 节点的最小样本数量（如果低于该数量则不会再分裂）

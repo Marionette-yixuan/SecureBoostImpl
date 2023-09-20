@@ -1,7 +1,7 @@
 import os
 import shutil
 import argparse
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from core.ActiveParty import ActiveParty
 from utils.params import passive_list
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     ap = ActiveParty()
     ap.load_dataset('static/data/ap_train.csv', 'static/data/ap_test.csv')
     ap.train()
-    # file_name = ap.dump_model('static/model/')
-    # ap.load_model(file_name)
+    file_name = ap.dump_model('static/model/')
+    ap.load_model(file_name)
     ap.predict()
     

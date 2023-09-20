@@ -387,8 +387,9 @@ class ActiveParty:
                     get_passive_split(party_name, instance_space_file, look_up_id)
 
         logger.info(f'{self.name.upper()}: Test accuracy: {Calculator.accuracy(self.testset["y"], preds)}. ')
+        logger.info(f'{self.name.upper()}: All finished. ')
 
-
+ 
 class Model:
     def __init__(self, active_idx=0) -> None:
         self.trees = []
