@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import configparser
 
 from utils.log import logger
 
@@ -7,20 +8,20 @@ from utils.log import logger
 class Calculator:
     ## 训练时使用的参数，设计为该类的静态变量
     # 计算梯度
-    lmd = 50.0
-    gma = 5.0
+    lmd = None
+    gma = None
     # 样本空间的划分分位数
-    quantile = np.linspace(0, 1, 9).tolist()[1:-1]
+    quantile = None
     # 节点的最小样本数量（如果低于该数量则不会再分裂）
-    min_sample = 20
+    min_sample = None
     # 模型参数
-    max_depth = 5       # 树最大深度
-    max_trees = 4       # 最大树数量
+    max_depth = None       # 树最大深度
+    max_trees = None       # 最大树数量
     # 预测参数
-    init_pred = 0.0             # 初始预测值
-    output_thresh = 0.33        # 对于输出的映射，大于该值则输出 1，反之输出 0
+    init_pred = None             # 初始预测值
+    output_thresh = None        # 对于输出的映射，大于该值则输出 1，反之输出 0
     # 其它参数
-    keypair_gen_length = 192     # Paillier 公私钥的生成长度
+    keypair_gen_length = None     # Paillier 公私钥的生成长度
 
     def __init__(self) -> None:
         pass
@@ -86,3 +87,42 @@ class Calculator:
             'f1': f1_score(y_true, y_pred)
         }
     
+    @staticmethod
+    def load_config(config_path='config/config.conf'):
+        cfg = configparser.ConfigParser()
+        cfg.read(config_path)
+        Calculator.lmd = float(cfg['params.train']['lmd'])
+        Calculator.gma = float(cfg['params.train']['gma'])
+        Calculator.quantile = np.linspace(0, 1, int(cfg['params.train']['quantile']) + 1).tolist()[1:-1]
+        Calculator.min_sample = int(cfg['params.train']['min_sample'])
+        Calculator.max_depth = int(cfg['params.train']['max_depth'])
+        Calculator.max_trees = int(cfg['params.train']['max_trees'])
+        Calculator.init_pred = float(cfg['params.predict']['init_pred'])
+        Calculator.output_thresh = float(cfg['params.predict']['output_thresh'])
+        Calculator.keypair_gen_length = int(cfg['encryption']['keypair_gen_length'])
+        logger.debug(f'Config loaded. Trees and depth: ({Calculator.max_trees}, {Calculator.max_depth}). ')
+
+    @staticmethod
+    def generate_config(config_path='config/config.conf'):
+        cfg = configparser.ConfigParser()
+        cfg['params.train'] = {
+            'lmd': 10.0,
+            'gma': 0.0, 
+            'quantile': 8, 
+            'min_sample': 20,
+            'max_depth': 5,
+            'max_trees': 4
+        }
+        cfg['params.predict'] = {
+            'init_pred': 0.0,
+            'output_thresh': 0.33
+        }
+        cfg['encryption'] = {
+            'keypair_gen_length': 192
+        }
+        with open(config_path, 'w+') as config_file:
+            cfg.write(config_file)
+
+
+if __name__ == '__main__':
+    Calculator.generate_config()        # 先注释上面的 import utils.logger 再运行文件

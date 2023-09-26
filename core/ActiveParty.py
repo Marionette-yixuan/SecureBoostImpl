@@ -4,7 +4,7 @@ import threading
 import requests
 import pandas as pd
 from collections import deque
-from phe import paillier, PaillierPublicKey, PaillierPrivateKey
+from phe import paillier, PaillierPublicKey
 
 from core.Calculator import Calculator
 from utils.log import logger
@@ -16,6 +16,8 @@ from msgs.messages import msg_empty, msg_name_file, msg_gradient_file, msg_split
 
 class ActiveParty:
     def __init__(self) -> None:
+        Calculator.load_config()
+
         self.id = 0
         self.name = f'party{self.id}'
         self.pub_key, self.pri_key = paillier.generate_paillier_keypair(n_length=Calculator.keypair_gen_length)

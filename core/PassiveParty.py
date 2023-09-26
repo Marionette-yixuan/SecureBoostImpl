@@ -1,7 +1,6 @@
 import os
 import json
 import pandas as pd
-from concurrent.futures import ThreadPoolExecutor
 
 from core.Calculator import Calculator
 from utils.log import logger
@@ -13,6 +12,8 @@ from msgs.messages import msg_empty, msg_name_file, msg_split_confirm
 
 class PassiveParty:
     def __init__(self, id: int) -> None:
+        Calculator.load_config()
+
         self.id = id
         self.name = f'party{self.id}'          # 被动方名称
         self.active_pub_key = None             # 主动方的公钥，用于数据加密
