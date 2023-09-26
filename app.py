@@ -75,7 +75,7 @@ if __name__ == '__main__':
         os.makedirs(path)
 
     pp = PassiveParty(id)
-    pp.load_dataset(f'static/data/pp{id}_train.csv', f'static/data/pp{id}_test.csv')
+    pp.load_dataset(f'static/data/give_credit_hetero_host.csv')
 
     local_host = '127.0.0.1'
     app.run(host=local_host, port=port)

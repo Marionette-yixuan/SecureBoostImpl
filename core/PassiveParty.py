@@ -68,23 +68,19 @@ class PassiveParty:
         train_idx_map = {sha1(idx): idx for idx in train_idx}
         train_hash = list(train_idx_map.keys())
 
+        map_data = {'train_map': train_idx_map}
+        json_data = {'train_hash': train_hash}
+
         if self.testset is not None:
             valid_idx = self.testset.index.tolist()
             valid_idx_map = {sha1(idx): idx for idx in valid_idx}
             valid_hash = list(valid_idx_map.keys())
+            map_data['valid_map'] = valid_idx_map
+            json_data['valid_hash'] = valid_hash
 
-        map_data = {
-            'train_map': train_idx_map, 
-            'valid_map': valid_idx_map
-        }
         map_file = os.path.join(temp_root['file'][self.id], f'idx_map.json')
         with open(map_file, 'w+') as f:
             json.dump(map_data, f)
-
-        json_data = {
-            'train_hash': train_hash, 
-            'valid_hash': valid_hash
-        }
 
         sample_file = os.path.join(temp_root['file'][self.id], f'sample_align.json')
         with open(sample_file, 'w+') as f:

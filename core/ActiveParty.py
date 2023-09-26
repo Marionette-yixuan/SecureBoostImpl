@@ -112,18 +112,15 @@ class ActiveParty:
             lock.acquire()          # 加锁防止完整性破坏
             train_hash = train_hash.intersection(set(hash_data['train_hash']))
             if self.testset is not None:
-                valid_hash = valid_hash.intersection(set(hash_data['valid_hash']))
+                valid_hash = valid_hash.intersection(set(hash_data.get('valid_hash', [])))
             lock.release()
             return True
         recv_sample_list()
         logger.info(f'{self.name.upper()}: Sample alignment finished. Intersect trainset contains {len(train_hash)} samples. ')
 
-        train_hash, valid_hash = list(train_hash), list(valid_hash)     # 将求交后的哈希集合转换为列表
-
-        json_data = {
-            'train_hash': train_hash, 
-            'valid_hash': valid_hash
-        }
+        json_data = {'train_hash': list(train_hash)}
+        if self.testset is not None:
+            json_data['valid_hash'] = list(valid_hash)
 
         file_name = os.path.join(temp_root['file'][self.id], f'sample_align.json')
         with open(file_name, 'w+') as f:

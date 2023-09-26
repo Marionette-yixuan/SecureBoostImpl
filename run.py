@@ -39,7 +39,7 @@ if __name__ == '__main__':
         executor.submit(create_passive_party, {'id': i + 1, 'port': port})
 
     ap = ActiveParty()
-    ap.load_dataset('static/data/ap_train.csv', 'static/data/ap_test.csv')
+    ap.load_dataset('static/data/give_credit_hetero_guest.csv')
     ap.train()
     file_name = ap.dump_model('static/model/')
     ap.load_model(file_name)
